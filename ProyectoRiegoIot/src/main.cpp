@@ -2,33 +2,39 @@
 #include <WiFi.h>
 #include <UniversalTelegramBot.h>
 #include <WiFiClientSecure.h>
-#include <DHT.h>
-#include "config.h" // Incluimos el archivo de configuración
+#include <OneWire.h>
+#include <DallasTemperature.h>
+#include "config.h"
 
-// Creamos un objeto de tipo WiFiClientSecure para la conexión SSL
+// Pines de los sensores y relés
+#define SOIL_SENSOR_PIN1 32
+#define SOIL_SENSOR_PIN2 33
+#define SOIL_SENSOR_PIN3 34
+
+#define ONE_WIRE_BUS1 14
+#define ONE_WIRE_BUS2 27
+#define ONE_WIRE_BUS3 26
+
+#define RELAY_PIN_PUMP 25
+#define RELAY_PIN_VALVE1 13
+#define RELAY_PIN_VALVE2 12
+#define RELAY_PIN_VALVE3 14
+
+OneWire oneWire1(ONE_WIRE_BUS1);
+OneWire oneWire2(ONE_WIRE_BUS2);
+OneWire oneWire3(ONE_WIRE_BUS3);
+
+DallasTemperature sensors1(&oneWire1);
+DallasTemperature sensors2(&oneWire2);
+DallasTemperature sensors3(&oneWire3);
+
+// Crear un objeto de tipo WiFiClientSecure para la conexión SSL
 WiFiClientSecure client;
 UniversalTelegramBot bot(botToken, client);
 
-// Se definen los pines de los sensores y relés
-#define DHTTYPE DHT22 // Cambia según el tipo de tu sensor DHT
-#define DHTPIN1 26
-#define DHTPIN2 27
-#define DHTPIN3 14
-#define RELAY_PIN_PUMP 32
-#define RELAY_PIN_VALVE1 33
-#define RELAY_PIN_VALVE2 25
-#define RELAY_PIN_VALVE3 13
-
-DHT dht1(DHTPIN1, DHTTYPE);
-DHT dht2(DHTPIN2, DHTTYPE);
-DHT dht3(DHTPIN3, DHTTYPE);
-
-// Variables para los tiempos de riego
-unsigned long previousMillis = 0;
-const long interval = 10000; // Intervalo de riego en milisegundos
-
 // Variables para las lecturas de los sensores
-float temp1, hum1, temp2, hum2, temp3, hum3;
+float temp1, temp2, temp3;
+int soilHum1, soilHum2, soilHum3;
 
 void setup() {
   // Inicialización de los pines
@@ -37,10 +43,10 @@ void setup() {
   pinMode(RELAY_PIN_VALVE2, OUTPUT);
   pinMode(RELAY_PIN_VALVE3, OUTPUT);
 
-  // Inicialización de los sensores DHT
-  dht1.begin();
-  dht2.begin();
-  dht3.begin();
+  // Inicialización de los sensores de temperatura
+  sensors1.begin();
+  sensors2.begin();
+  sensors3.begin();
 
   // Conexión a WiFi
   Serial.begin(115200);
@@ -56,18 +62,24 @@ void setup() {
 }
 
 void loop() {
-  // Leer sensores
-  temp1 = dht1.readTemperature();
-  hum1 = dht1.readHumidity();
-  temp2 = dht2.readTemperature();
-  hum2 = dht2.readHumidity();
-  temp3 = dht3.readTemperature();
-  hum3 = dht3.readHumidity();
+  // Leer sensores de temperatura
+  sensors1.requestTemperatures();
+  sensors2.requestTemperatures();
+  sensors3.requestTemperatures();
+  
+  temp1 = sensors1.getTempCByIndex(0);
+  temp2 = sensors2.getTempCByIndex(0);
+  temp3 = sensors3.getTempCByIndex(0);
+
+  // Leer sensores de humedad del suelo
+  soilHum1 = analogRead(SOIL_SENSOR_PIN1);
+  soilHum2 = analogRead(SOIL_SENSOR_PIN2);
+  soilHum3 = analogRead(SOIL_SENSOR_PIN3);
 
   // Comprobación de las lecturas de los sensores y control de riego
-  controlarRiego(temp1, hum1, RELAY_PIN_VALVE1);
-  controlarRiego(temp2, hum2, RELAY_PIN_VALVE2);
-  controlarRiego(temp3, hum3, RELAY_PIN_VALVE3);
+  controlarRiego(soilHum1, RELAY_PIN_VALVE1);
+  controlarRiego(soilHum2, RELAY_PIN_VALVE2);
+  controlarRiego(soilHum3, RELAY_PIN_VALVE3);
 
   // Manejar los comandos de Telegram
   int numNewMessages = bot.getUpdates(bot.last_message_received + 1);
@@ -82,13 +94,8 @@ void loop() {
   delay(1000);
 }
 
-void controlarRiego(float temp, float hum, int valvePin) {
-  if (isnan(temp) || isnan(hum)) {
-    Serial.println("Error al leer el sensor");
-    return;
-  }
-
-  if (hum < 50.0) { // Ajusta el umbral de humedad según sea necesario
+void controlarRiego(int soilHum, int valvePin) {
+  if (soilHum < 500) { // Ajusta el umbral de humedad según sea necesario
     digitalWrite(valvePin, LOW); // Abre la electroválvula
     digitalWrite(RELAY_PIN_PUMP, LOW); // Enciende la bomba
     delay(5000); // Riega durante 5 segundos
@@ -103,9 +110,9 @@ void handleNewMessages(int messageIndex) {
 
   if (text == "/lecturas") {
     String message = "Lecturas de sensores:\n";
-    message += "Maceta 1 - Temp: " + String(temp1) + "C, Hum: " + String(hum1) + "%\n";
-    message += "Maceta 2 - Temp: " + String(temp2) + "C, Hum: " + String(hum2) + "%\n";
-    message += "Maceta 3 - Temp: " + String(temp3) + "C, Hum: " + String(hum3) + "%";
+    message += "Maceta 1 - Temp: " + String(temp1) + "C, Humedad del Suelo: " + String(soilHum1) + "\n";
+    message += "Maceta 2 - Temp: " + String(temp2) + "C, Humedad del Suelo: " + String(soilHum2) + "\n";
+    message += "Maceta 3 - Temp: " + String(temp3) + "C, Humedad del Suelo: " + String(soilHum3);
     bot.sendMessage(chat_id, message, "");
   }
 }
