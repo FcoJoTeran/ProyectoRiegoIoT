@@ -374,7 +374,6 @@ void controlarRiego(int soilHum, int valvePin) {
   if (soilHum < 500) { // Ajusta el umbral de humedad según sea necesario
     digitalWrite(valvePin, LOW); // Abre la electroválvula
     Serial.print("Activo Electrovalvula ");
-    Serial.print(valvePin);
     delay(1000);
     digitalWrite(RELAY_PIN_PUMP, LOW); // Enciende la bomba
     delay(5000); // Riega durante 5 segundos
