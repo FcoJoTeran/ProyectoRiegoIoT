@@ -8,6 +8,7 @@
 #include <liquidcrystal_i2c.h>
 #include <HTTPClient.h>
 #include "esp_timer.h"
+#include <Preferences.h>
 
 // Pines de los sensores y relés
 #define SOIL_SENSOR_PIN1 33
@@ -23,10 +24,14 @@
 #define RELAY_PIN_VALVE2 21
 #define RELAY_PIN_VALVE3 19
 LiquidCrystal_I2C lcd(0x27, 16, 2); // Dirección I2C 0x27 y tamaño del LCD 16x2
+Preferences prefences; // Objeto para almacenar las preferencias en la memoria flash
 
 const char* ssid[] = {"Econtel_Ecuador", "Backup_SSID"};
 const char* password[] = {"Platon31053105", "Backup_Password"};
 const char* botToken = "7310667787:AAFd3nAKGECa1NMFmxIHbuCB2kCr246lREs";
+int umbralHumedad = 30; // Umbral de humedad para activar el riego
+int umbralTemperatura = 25; // Umbral de temperatura para activar el riego
+
 OneWire oneWire1(ONE_WIRE_BUS1);
 OneWire oneWire2(ONE_WIRE_BUS2);
 OneWire oneWire3(ONE_WIRE_BUS3);
@@ -150,6 +155,21 @@ bool connectWiFi() {
 void setup() {
   // Inicialización de los pines
   Serial.begin(115200);
+  lcd.begin();
+  lcd.backlight();
+
+  // Configurar NVS
+  preferences.begin("riego", false); // "riego" es el nombre del espacio de nombres
+  umbralHumedad = preferences.getInt("umbral", 30); // Carga el umbral desde NVS, o usa 30 como valor por defecto
+  umbralTemperatura = preferences.getInt("umbral_temp", 25); // Carga el umbral de temperatura desde NVS, o usa 25 como valor por defecto
+  preferences.end();
+
+  //Se configura el temporizador para leer los sensores cada 5 segundos
+  timer = timerBegin(0, 80, true);
+  timerAttachInterrupt(timer, &onTimer, true);
+  timerAlarmWrite(timer, 5000000, true);
+  timerAlarmEnable(timer);
+
   pinMode(RELAY_PIN_PUMP, OUTPUT);
   pinMode(RELAY_PIN_VALVE1, OUTPUT);
   pinMode(RELAY_PIN_VALVE2, OUTPUT);
@@ -169,10 +189,7 @@ void setup() {
   sensors2.begin();
   sensors3.begin();
 
-  timer = timerBegin(0, 80, true);
-  timerAttachInterrupt(timer, &onTimer, true);
-  timerAlarmWrite(timer, 5000000, true);
-  timerAlarmEnable(timer);
+  
   
   // Conexión a WiFi
   if (!connectWiFi()) {
@@ -192,8 +209,8 @@ void setup() {
 
 }
 
-void controlarRiego(float soilHum, int valvePin, const char* valveName) {
-  if (soilHum > 30 ) { // Ajusta el umbral de humedad según sea necesario
+void controlarRiego(float temp,float soilHum, int valvePin, const char* valveName) {
+  if (soilHum < umbralHumedad && temp > umbralTemperatura ) { // Ajusta el umbral de humedad según sea necesario
     digitalWrite(valvePin, HIGH); // Abre la electroválvula
     Serial.print("Activo Electrovalvula \n");
     bot.sendMessage(chat_id, String("Activando ") + valveName, "");
@@ -221,7 +238,26 @@ void handleNewMessages(int messageIndex) {
     message += "Maceta 2 - Temp: " + String(temp2) + "C, Humedad del Suelo: " + String(humidity2_percent) + "%\n";
     message += "Maceta 3 - Temp: " + String(temp3) + "C, Humedad del Suelo: " + String(humidity3_percent) + "%";
     bot.sendMessage(chat_id, message, "");
-  }
+  } else if (text.startsWith("/setumbralhumedad")) {
+    int nuevoUmbral = text.substring(17).toInt();
+    if (nuevoUmbral > 0 && nuevoUmbral <= 100) {
+      umbralHumedad = nuevoUmbral;
+      preferences.putInt("umbralHumedad", umbralHumedad); // Guardar umbral de humedad en NVS
+      bot.sendMessage(chat_id, "Umbral de humedad cambiado a " + String(umbralHumedad) + "%", "");
+    } else {
+      bot.sendMessage(chat_id, "Valor inválido. Por favor, introduce un número entre 1 y 100.", "");
+    }
+  } else if (text.startsWith("/setumbraltemperatura")) {
+    int nuevoUmbral = text.substring(20).toInt();
+    // Lógica similar para el umbral de temperatura
+    if (nuevoUmbral >= -30 && nuevoUmbral <= 50) {
+      umbralTemperatura = nuevoUmbral;
+      preferences.putInt("umbralTemperatura", umbralTemperatura); // Guardar umbral de temperatura en NVS
+      bot.sendMessage(chat_id, "Umbral de temperatura cambiado a " + String(umbralTemperatura) + "C", "");
+    } else {
+      bot.sendMessage(chat_id, "Valor inválido. Por favor, introduce un número entre -30 y 50.", "");
+    }
+}
 }
 
 void loop() {
@@ -259,9 +295,9 @@ void loop() {
     delay(2000);
 
     // Controlar el riego basado en las lecturas de humedad
-    controlarRiego(humidity1_percent, RELAY_PIN_VALVE1, "Válvula 1");
-    controlarRiego(humidity2_percent, RELAY_PIN_VALVE2, "Válvula 2");
-    controlarRiego(humidity3_percent, RELAY_PIN_VALVE3, "Válvula 3");
+    controlarRiego(temp1, humidity1_percent, RELAY_PIN_VALVE1, "Válvula 1");
+    controlarRiego(temp2, humidity2_percent, RELAY_PIN_VALVE2, "Válvula 2");
+    controlarRiego(temp3, humidity3_percent, RELAY_PIN_VALVE3, "Válvula 3");
   }
 
   // Manejar los comandos de Telegram
