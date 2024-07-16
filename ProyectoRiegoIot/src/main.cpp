@@ -43,6 +43,22 @@ float temp1, temp2, temp3;
 int soilHum1, soilHum2, soilHum3;
 float humidity1_percent, humidity2_percent, humidity3_percent;
 String chat_id = "6130020249"; // Reemplaza con tu chat_id de Telegram
+
+void IRAM_ATTR handleSoilSensor1() {
+  humidity1_percent = map(analogRead(SOIL_SENSOR_PIN1), 2200, 4095, 100, 0);
+  controlarRiego(humidity1_percent, RELAY_PIN_VALVE1, "Válvula 1");
+}
+
+void IRAM_ATTR handleSoilSensor2() {
+  humidity2_percent = map(analogRead(SOIL_SENSOR_PIN2), 2200, 4095, 100, 0);
+  controlarRiego(humidity2_percent, RELAY_PIN_VALVE2, "Válvula 2");
+}
+
+void IRAM_ATTR handleSoilSensor3() {
+  humidity3_percent = map(analogRead(SOIL_SENSOR_PIN3), 2200, 4095, 100, 0);
+  controlarRiego(humidity3_percent, RELAY_PIN_VALVE3, "Válvula 3");
+}
+
 void setup() {
   // Inicialización de los pines
   Serial.begin(115200);
@@ -50,6 +66,14 @@ void setup() {
   pinMode(RELAY_PIN_VALVE1, OUTPUT);
   pinMode(RELAY_PIN_VALVE2, OUTPUT);
   pinMode(RELAY_PIN_VALVE3, OUTPUT);
+
+   // Configurar pines de interrupción
+  pinMode(SOIL_SENSOR_PIN1, INPUT);
+  pinMode(SOIL_SENSOR_PIN2, INPUT);
+  pinMode(SOIL_SENSOR_PIN3, INPUT);
+  attachInterrupt(digitalPinToInterrupt(SOIL_SENSOR_PIN1), handleSoilSensor1, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(SOIL_SENSOR_PIN2), handleSoilSensor2, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(SOIL_SENSOR_PIN3), handleSoilSensor3, CHANGE);
   
 
   // Inicialización de los sensores de temperatura 
@@ -87,6 +111,8 @@ void controlarRiego(float soilHum, int valvePin, const char* valveName) {
     bot.sendMessage(chat_id, "Desactivando Bomba", "");
   }
 }
+
+
 
 
 void actualizarLecturas() {
@@ -150,12 +176,17 @@ void handleNewMessages(int messageIndex) {
 }
 
 void loop() {
+  static unsigned long lastReadTime = 0;
+  unsigned long currentTime = millis();
   digitalWrite(RELAY_PIN_PUMP, LOW);
   digitalWrite(RELAY_PIN_VALVE1, LOW);
   digitalWrite(RELAY_PIN_VALVE2, LOW);
   digitalWrite(RELAY_PIN_VALVE3, LOW);
 
-  actualizarLecturas(); // Actualizar las lecturas en cada ciclo
+  if (currentTime - lastReadTime >= 5000) {
+    actualizarLecturas(); // Actualizar las lecturas cada 5 segundos
+    lastReadTime = currentTime;
+  }
 
   // Comprobación de las lecturas de los sensores y control de riego
   controlarRiego(temp1, RELAY_PIN_VALVE1, "Valvulá 1");
